@@ -82,19 +82,6 @@ class Fod_Thread(QtCore.QThread):
             except:
                 result_txt.append(temp_name)
         return result_txt
-        # list.pop() list.append()这两个方法就可以实现栈维护功能
-        stack = []
-        result_txt = []
-        stack.append(dict_name)
-        while len(stack) != 0:  # 栈空代表所有目录均已完成访问
-            temp_name = stack.pop()
-            try:
-                temp_name2 = os.listdir(temp_name)  # list ["","",...]
-                for eve in temp_name2:
-                    stack.append(temp_name + "\\" + eve)  # 维持绝对路径的表达
-            except:
-                result_txt.append(temp_name)
-        return result_txt
 
     def judge_time(self, pttq_path):
         """
@@ -162,36 +149,49 @@ class Fod_Thread(QtCore.QThread):
                     self.fod_sign.emit(" File changes under maya installation path")
             self.sleep(10)
 
-
 class Node_Thread(QtCore.QThread):
     node_sign = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super(Node_Thread, self).__init__(parent)
-
+        self.path = None
         self.thf_on = True
+
+    def get_path(self, path):
+        if path:
+            self.path = path
+
+    def search_files(self):
+        import fnmatch
+        fnexps = "*.ma|*.mb"
+        for root, dirs, files in os.walk(self.path):
+            for fnexp in fnexps.split('|'):
+                for filename in fnmatch.filter(files, fnexp):
+                    yield os.path.join(root, filename)
 
     def run(self):
         self.sleep(10)
-        my_path = 'D:/Ball.ma'
         while self.thf_on:
-            run_command = CMD_COMMAND + ' ' + my_path
-            proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
-            stdout_value = proc.stdout.readlines()[-1]
-            self.node_sign.emit(my_path + '\n' + str(stdout_value))
+            if re.search('\.', self.path):
+                run_command = CMD_COMMAND + ' ' + self.path.split('///')[-1]
+                proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
+                stdout_value = proc.stdout.readlines()[-1]
+                self.node_sign.emit(self.path + '\n' + str(stdout_value))
+            else:
+                for ma in list(self.search_files()):
+                    ma_path = ma.replace('\\', '/')
+                    run_command = CMD_COMMAND + ' ' + ma_path
+                    proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
+                    stdout_value = proc.stdout.readlines()[-1]
+                    self.node_sign.emit(ma_path + '\n' + str(stdout_value))
 
 
 class MyLineEdit(QtGui.QLineEdit):
-    clicked = QtCore.Signal()
 
     def __init__(self, parent=None):
         super(MyLineEdit, self).__init__(parent)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
-
-    def mouseReleaseEvent(self, QMouseEvent):
-        if QMouseEvent.button() == QtCore.Qt.LeftButton:
-            self.clicked.emit()
 
     def dragEnterEvent(self, event):
 
@@ -213,6 +213,12 @@ class Main_widget(QtGui.QWidget):
     def __init__(self, parent=None):
         super(Main_widget, self).__init__(parent)
 
+        self.node_thread = None
+        self.env_thread = None
+        self.fod_thread = None
+        self.node_path = None
+        self.node_drag = None
+
         self.setWindowTitle('MAYA_MONITOR')
         self.setMinimumHeight(500)
         self.setMinimumWidth(1000)
@@ -224,6 +230,7 @@ class Main_widget(QtGui.QWidget):
         # self.setPalette(palette1)
 
         self.start_btn = QtGui.QPushButton('Start')
+        self.start_btn.setEnabled(False)
         self.start_btn.setMaximumWidth(120)
         self.start_btn.setMinimumHeight(40)
         self.time_lab_s = QtGui.QLabel()
@@ -251,11 +258,13 @@ class Main_widget(QtGui.QWidget):
         frame_two.setFrameShadow(QtGui.QFrame.Raised)
         frame_two.setLineWidth(2)
 
-        self.path_line = MyLineEdit('Please enter the path to check')
+        self.path_line = MyLineEdit()
+        self.path_line.setPlaceholderText('Please enter the path to check')
         self.path_line.setMinimumHeight(40)
-        self.drag_line = MyLineEdit('Please drag the file in the text to be checked')
-        self.drag_line.acceptDrops()
-        self.drag_line.setMinimumHeight(40)
+        #self.drag_line = MyLineEdit()
+        #self.drag_line.setPlaceholderText('Please drag the file in the text to be checked')
+        #self.drag_line.acceptDrops()
+        #self.drag_line.setMinimumHeight(40)
 
         self.env_lab = QtGui.QLabel('Environ_Status:      ')
         self.env_lab.setStyleSheet('Font-Size:20px')
@@ -297,7 +306,7 @@ class Main_widget(QtGui.QWidget):
         self.v_layout_node.addWidget(self.node_lab)
         self.v_layout_node.addWidget(self.node_text)
         self.h_layout_path.addWidget(self.path_line)
-        self.h_layout_path.addWidget(self.drag_line)
+        #self.h_layout_path.addWidget(self.drag_line)
 
         self.h_layout.addWidget(self.end_btn)
         self.h_layout.addWidget(self.time_lab_s)
@@ -321,36 +330,26 @@ class Main_widget(QtGui.QWidget):
         self.start_btn.clicked.connect(self.env_mo)
         self.start_btn.clicked.connect(self.node_mo)
         self.start_btn.clicked.connect(self.fod_mo)
+        self.start_btn.clicked.connect(self.reset_text)
         self.end_btn.clicked.connect(self.hide_lab)
         self.end_btn.clicked.connect(self.over_thread)
 
-        self.path_line.clicked.connect(self.enter_path)
         self.path_line.textChanged.connect(self.enter_path_one)
-        self.drag_line.clicked.connect(self.drag_fod)
-        self.drag_line.textChanged.connect(self.drag_fod_one)
+        #self.drag_line.textChanged.connect(self.drag_fod_one)
 
-    def enter_path(self):
-        if self.path_line.text() == 'Please enter the path to check':
-            self.path_line.clear()
+    def reset_text(self):
+        self.start_btn.setEnabled(False)
+        self.fod_text.setText('Folder_Monitor:')
+        self.env_text.setText('Environ_Monitor:')
+        self.node_text.setText('Node_Monitor:')
+        self.fod_lab.setText('Folder_Status:')
+        self.env_lab.setText('Environ_Status:')
+        self.node_lab.setText('Node_Status:')
 
     def enter_path_one(self):
-        path = self.path_line.text()
-        if len(path):
-            self.drag_line.setEnabled(False)
-
-        else:
-            self.drag_line.setEnabled(True)
-
-    def drag_fod(self):
-        if self.drag_line.text() == 'Please drag the file in the text to be checked':
-            self.drag_line.clear()
-
-    def drag_fod_one(self):
-        drag = self.drag_line.text()
-        if len(drag):
-            self.path_line.setEnabled(False)
-        else:
-            self.path_line.setEnabled(True)
+        self.node_path = self.path_line.text()
+        if self.node_path:
+            self.start_btn.setEnabled(True)
 
     def check_sue(self):
         pass
@@ -369,12 +368,6 @@ class Main_widget(QtGui.QWidget):
 
     def hide_lab(self):
         self.timer.stop()
-        self.fod_text.setText('Folder_Monitor:')
-        self.fod_lab.setText('Folder_Status:')
-        self.env_text.setText('Environ_Monitor:')
-        self.env_lab.setText('Environ_Status:')
-        self.node_text.setText('Node_Monitor:')
-        self.node_lab.setText('Node_Status:')
 
     def fod_mo(self):
         self.fod_thread = Fod_Thread()
@@ -397,12 +390,14 @@ class Main_widget(QtGui.QWidget):
             self.fod_lab.setText('Folder_Status:' + 'Correct')
 
     def env_mo(self):
-        self.start_btn.setEnabled(False)
+
         self.env_thread = Env_Thread()
         self.env_thread.start()
 
     def node_mo(self):
         self.node_thread = Node_Thread()
+        if self.node_path:
+            self.node_thread.get_path(self.node_path)
         self.node_thread.start()
         self.node_thread.node_sign.connect(self.node_test)
 
