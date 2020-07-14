@@ -1,18 +1,11 @@
 # coding=utf8
 # Copyright (c) 2020 GVF
 
-import re
-import json
-import os
 import maya.cmds as cmds
 import maya.mel as mel
 
 
-# 1.世界目标清零
-# 2.冻结变换
-# 3.清历史
 def select_mesh():
-    select_mesh=None
     select_mesh = cmds.ls(sl=1)
     cmds.select(cl=1)
     return select_mesh
@@ -20,16 +13,16 @@ def select_mesh():
 
 def reset_object_position(log_mesh):
     """
-    reset the absolute acorrdinate
+    reset the absolute acorrdinate, freeze transformation and delete construction history
     Returns:
 
     """
     check_uv_count(log_mesh)
     if log_mesh:
-        # for obj in select_mesh:
         cmds.select(log_mesh, r=1)
-        cmds.move(a=1, x=0, y=0, z=0)
+        cmds.move(a=1, rotatePivotRelative=1, x=0, y=0, z=0)
         cmds.makeIdentity(log_mesh, apply=True, t=True, r=True, s=True, n=0)
+        cmds.delete(log_mesh, ch=1)
         cmds.select(cl=1)
         return True
 
@@ -46,8 +39,8 @@ def check_uv_count(log_mesh):
     uv_set_num = cmds.polyUVSet(log_mesh, query=True, allUVSets=True)
     cmds.select(cl=1)
     if uv_set_num:
-        if len(uv_set_num) >= 2:
-            return RuntimeError(u'存在模型超过了2个UV')
+        if not len(uv_set_num) == 2:
+            return 'warning'
     else:
         pass
     return True
@@ -64,7 +57,7 @@ def set_export_argument(log_mesh, fbx_path):
 
     """
 
-    cmds.loadPlugin("fbxmaya.mll")
+    cmds.loadPlugin("fbxmaya.mll", qt=1)
     cmds.select(log_mesh)
     # 设置导出信息
     mel.eval('FBXExportSmoothingGroups -v true')
@@ -75,15 +68,15 @@ def set_export_argument(log_mesh, fbx_path):
 
 
 def check_uv_overlap(log_mesh):
-    '''
+    """
 
     Args:
-        select_mesh:
+        log_mesh:
 
     Returns:
-        overlap_uv:Coincident UV
-    '''
-    overlap_uv=None
+
+    """
+    overlap_uv = None
     uv_name_list = []
     uv_num = cmds.polyEvaluate(log_mesh, f=1)
     for num in range(uv_num):
@@ -98,28 +91,28 @@ def check_uv_overlap(log_mesh):
 
 
 def set_filter(edge_num):
-    '''
+    """
 
     Args:
         edge_num:
 
     Returns:
-        None
-    '''
+
+    """
     for element in edge_num:
         if element == ' ':
             pass
 
 
 def query_face_dege(log_mesh):
-    '''
+    """
 
     Args:
-        select_mesh:
+        log_mesh:
 
     Returns:
-        face_edge_dict:
-    '''
+
+    """
     # 获取面数量
     face_edge_dict = {}
     mesh_face_num = cmds.polyEvaluate(log_mesh, f=1)
@@ -137,32 +130,32 @@ def query_face_dege(log_mesh):
 
 # 查询模型面数
 def check_face_num(log_mesh):
-    '''
+    """
 
     Args:
-        select_mesh:
+        log_mesh:
 
     Returns:
-        status:Three diffrerent status
-    '''
+            Three different status
+    """
     # 查询模型的全路径
-    file_path=None
-    face_num=None
-    file_path = cmds.file(log_mesh, q=1, sn=1)
+    file_path = None
+    face_num = None
+    # file_path = cmds.file(log_mesh, q=1, sn=1)
     face_num = cmds.polyEvaluate(log_mesh, f=1)
     cmds.select(cl=1)
-    return file_path, face_num
+    return face_num
 
 
 def chech_point_overlap(log_mesh):
-    '''
+    """
 
     Args:
-        select_mesh:
+        log_mesh:
 
     Returns:
-        point_position_list:position of the point
-    '''
+        point_position_list: list - position of the point
+    """
     point_position_list = []
     # for mesh_face in select_mesh:
     point_num = cmds.polyEvaluate(log_mesh, v=1)
@@ -176,4 +169,68 @@ def chech_point_overlap(log_mesh):
 
 
 def get_export_path():
-    return cmds.fileDialog2(fm=3)[0]
+    """
+
+    Returns:
+
+    """
+    path = cmds.fileDialog2(fm=3)
+    if path:
+        return path[0]
+
+
+def get_file_name():
+    if cmds.file(q=1, sn=1):
+        return cmds.file(q=1, sn=1)[0]
+
+
+def get_group():
+    total_mesh = cmds.ls(type='transform')
+    for mesh in total_mesh:
+        if cmds.nodeType(cmds.listRelatives(mesh, c=1)) == 'transform':
+            return 'group'
+
+
+def check_uv_point(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+            检查有两套UV的模型的UV坐标
+    """
+    uv_posi = []
+    if cmds.polyUVSet(log_mesh, query=True, allUVSets=True)==2:
+        for ou in cmds.getAttr(log_mesh + '.uvSet[0].uvSetPointsU'):
+            uv_posi.append(ou)
+        for ov in cmds.getAttr(log_mesh + '.uvSet[0].uvSetPointsV'):
+            uv_posi.append(ov)
+        for tu in cmds.getAttr(log_mesh + '.uvSet[1].uvSetPointsU'):
+            uv_posi.append(tu)
+        for tv in cmds.getAttr(log_mesh + '.uvSet[1].uvSetPointsV'):
+            uv_posi.append(tv)
+        return uv_posi
+    else:
+        return False
+
+
+def check_one_uv(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+        检查有一套UV的模型的UV坐标
+    """
+    uv_posi_one = []
+    uv_num = cmds.polyEvaluate(log_mesh, uv=1)
+    for num in range(uv_num):
+        point_name = '{}.map[{}]'.format(log_mesh, num)
+        # print point_name
+        uv_value = cmds.polyEditUV(point_name, q=1)
+        # print uv_value
+        for point in uv_value:
+            uv_posi_one.append(point)
+    return uv_posi_one
