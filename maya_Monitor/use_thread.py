@@ -12,32 +12,64 @@ from ctypes.wintypes import MAX_PATH
 from PySide import QtGui, QtCore
 
 PY_NAME = "node_thread.py"
+ENV_NAME = "env_thread.py"
 MAYA_PY_PATH = '"C:\\Program Files\\Autodesk\\Maya2017\\bin\\mayapy.exe"'
 DEV_RUN_PY_PATH = os.path.join("D:/gvfpipe/dcc_ops/maya/scripts/maya_Monitor/", PY_NAME)
+ENV_RUN_PY_PATH = os.path.join("D:/gvfpipe/dcc_ops/maya/scripts/maya_Monitor/", ENV_NAME)
 CMD_COMMAND = "{} {}".format(MAYA_PY_PATH, DEV_RUN_PY_PATH)
+ENV_COMMAND = "{} {}".format(MAYA_PY_PATH, ENV_RUN_PY_PATH)
 
 qmut_env = QtCore.QMutex()  # 创建线程锁
 qmut_nod = QtCore.QMutex()
 qmut_fod = QtCore.QMutex()
 
 
-# global path,drag
+# sys，env子线程
+class EnvThread(QtCore.QThread):
+    env_sign = QtCore.Signal(str)
 
-
-class Env_Thread(QtCore.QThread):
     def __init__(self, parent=None):
-        super(Env_Thread, self).__init__(parent)
+        super(EnvThread, self).__init__(parent)
 
+        self.env_path = None
         self.the_on = True
+
+    # 获取路径
+    def get_env(self, path):
+        if path:
+            self.env_path = path
+
+    # 查询路径下的ma，mb文件
+    def search_files(self):
+        import fnmatch
+        fnexps = "*.ma|*.mb"
+        for root, dirs, files in os.walk(self.env_path):
+            for fnexp in fnexps.split('|'):
+                for filename in fnmatch.filter(files, fnexp):
+                    yield os.path.join(root, filename)
 
     def run(self):
         self.sleep(10)
         while self.the_on:
-            pass
-        self.sleep(5)
+            if re.search('\.', self.env_path):
+                # 配置环境执行操作
+                run_command = ENV_COMMAND + ' ' + self.env_path
+                proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
+                stdout_value = proc.stdout.readlines()[1:]
+                self.env_sign.emit(self.env_path + '\n' + str(stdout_value))
+            else:
+                # 配置环境执行操作
+                for ma in list(self.search_files()):
+                    ma_path = ma
+                    run_command = ENV_COMMAND + ' ' + ma_path
+                    proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
+                    stdout_value = proc.stdout.readlines()[1:]
+                    self.env_sign.emit(ma_path + '\n' + str(stdout_value))
+            self.sleep(20)
 
 
-class Fod_Thread(QtCore.QThread):
+# 文件子线程
+class FodThread(QtCore.QThread):
     fod_sign = QtCore.Signal(str)
     fod_sign_two = QtCore.Signal(str)
     fod_sign_thr = QtCore.Signal(int)
@@ -46,7 +78,7 @@ class Fod_Thread(QtCore.QThread):
     list_install = []
 
     def __init__(self, parent=None):
-        super(Fod_Thread, self).__init__(parent)
+        super(FodThread, self).__init__(parent)
         self.thd_on = True
 
     # def get_maya_location(self):
@@ -66,10 +98,14 @@ class Fod_Thread(QtCore.QThread):
     #         return os.environ.get(list_install[0])
 
     def DFS_file_search(self, dict_name):
-        '''
-        获取该路径下所有文件的路径
-        '''
-        # list.pop() list.append()这两个方法就可以实现栈维护功能
+        """
+
+        Args:
+            dict_name:
+
+        Returns:
+            result_txt
+        """
         stack = []
         result_txt = []
         stack.append(dict_name)
@@ -142,18 +178,20 @@ class Fod_Thread(QtCore.QThread):
                             self.fod_sign_two.emit('The file about maya is normal.')
                             self.fod_sign_thr.emit(1)
                         else:
-                            self.fod_sign.emit("The file ‘maya2017/script’ in the maya document has changed")
+                            self.fod_sign.emit("The file 'maya2017/script' in the maya document has changed")
                     else:
-                        self.fod_sign.emit("The file ‘script’ in the maya document has changed")
+                        self.fod_sign.emit("The file 'script' in the maya document has changed")
                 else:
                     self.fod_sign.emit(" File changes under maya installation path")
-            self.sleep(10)
+            self.sleep(5)
 
-class Node_Thread(QtCore.QThread):
+
+# scriptNode子线程
+class NodeThread(QtCore.QThread):
     node_sign = QtCore.Signal(str)
 
     def __init__(self, parent=None):
-        super(Node_Thread, self).__init__(parent)
+        super(NodeThread, self).__init__(parent)
         self.path = None
         self.thf_on = True
 
@@ -173,19 +211,21 @@ class Node_Thread(QtCore.QThread):
         self.sleep(10)
         while self.thf_on:
             if re.search('\.', self.path):
-                run_command = CMD_COMMAND + ' ' + self.path.split('///')[-1]
+                run_command = CMD_COMMAND + ' ' + self.path
                 proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
                 stdout_value = proc.stdout.readlines()[-1]
                 self.node_sign.emit(self.path + '\n' + str(stdout_value))
             else:
                 for ma in list(self.search_files()):
-                    ma_path = ma.replace('\\', '/')
+                    ma_path = ma
                     run_command = CMD_COMMAND + ' ' + ma_path
                     proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
                     stdout_value = proc.stdout.readlines()[-1]
                     self.node_sign.emit(ma_path + '\n' + str(stdout_value))
+            self.sleep(20)
 
 
+# 自定义QLineEdit
 class MyLineEdit(QtGui.QLineEdit):
 
     def __init__(self, parent=None):
@@ -204,14 +244,17 @@ class MyLineEdit(QtGui.QLineEdit):
 
         if event.mimeData().hasUrls():
             url = event.mimeData().urls()[0]
+            if re.search(r'///', url.toString()):
+                self.setText(url.toString().split('///')[-1].replace('\\', '/'))
+            else:
+                self.setText(url.toString().replace('\\', '/'))
 
-            self.setText(url.toString())
 
-
-class Main_widget(QtGui.QWidget):
+# 主界面
+class Main(QtGui.QWidget):
 
     def __init__(self, parent=None):
-        super(Main_widget, self).__init__(parent)
+        super(Main, self).__init__(parent)
 
         self.node_thread = None
         self.env_thread = None
@@ -224,10 +267,6 @@ class Main_widget(QtGui.QWidget):
         self.setMinimumWidth(1000)
         self.setStyleSheet('Font-Size:15px')
         self.setWindowIcon(QtGui.QIcon("D:/speed.ico"))
-
-        # palette1 = QtGui.QPalette()
-        # palette1.setColor(self.backgroundRole(),QtGui.QColor(2, 183, 53))
-        # self.setPalette(palette1)
 
         self.start_btn = QtGui.QPushButton('Start')
         self.start_btn.setEnabled(False)
@@ -261,10 +300,6 @@ class Main_widget(QtGui.QWidget):
         self.path_line = MyLineEdit()
         self.path_line.setPlaceholderText('Please enter the path to check')
         self.path_line.setMinimumHeight(40)
-        #self.drag_line = MyLineEdit()
-        #self.drag_line.setPlaceholderText('Please drag the file in the text to be checked')
-        #self.drag_line.acceptDrops()
-        #self.drag_line.setMinimumHeight(40)
 
         self.env_lab = QtGui.QLabel('Environ_Status:      ')
         self.env_lab.setStyleSheet('Font-Size:20px')
@@ -306,7 +341,6 @@ class Main_widget(QtGui.QWidget):
         self.v_layout_node.addWidget(self.node_lab)
         self.v_layout_node.addWidget(self.node_text)
         self.h_layout_path.addWidget(self.path_line)
-        #self.h_layout_path.addWidget(self.drag_line)
 
         self.h_layout.addWidget(self.end_btn)
         self.h_layout.addWidget(self.time_lab_s)
@@ -335,7 +369,6 @@ class Main_widget(QtGui.QWidget):
         self.end_btn.clicked.connect(self.over_thread)
 
         self.path_line.textChanged.connect(self.enter_path_one)
-        #self.drag_line.textChanged.connect(self.drag_fod_one)
 
     def reset_text(self):
         self.start_btn.setEnabled(False)
@@ -359,6 +392,7 @@ class Main_widget(QtGui.QWidget):
         text = datetime.toString()
         self.time_lab_e.setText('current_time:' + text)
         self.end_btn.setEnabled(True)
+        self.path_line.setReadOnly(True)
 
     def show_lab(self):
         datetime = QtCore.QDateTime.currentDateTime()
@@ -370,7 +404,7 @@ class Main_widget(QtGui.QWidget):
         self.timer.stop()
 
     def fod_mo(self):
-        self.fod_thread = Fod_Thread()
+        self.fod_thread = FodThread()
         self.fod_thread.start()
         self.fod_lab.setText('Folder_Status:' + 'Correct')
         if self.fod_thread.fod_sign.connect(self.fod_test_show):
@@ -390,21 +424,35 @@ class Main_widget(QtGui.QWidget):
             self.fod_lab.setText('Folder_Status:' + 'Correct')
 
     def env_mo(self):
-
-        self.env_thread = Env_Thread()
+        self.env_thread = EnvThread()
+        if self.node_path:
+            self.env_thread.get_env(self.node_path)
+        self.env_thread.env_sign.connect(self.env_test)
         self.env_thread.start()
 
+    def env_test(self, msg):
+        self.env_text.append(msg + '\n')
+        if msg == 'sys is No problem' and 'env is No problem':
+            self.env_lab.setText('Environ_Status:' + 'Correct')
+        else:
+            self.env_lab.setText('Environ_Status:' + 'Wrong')
+
     def node_mo(self):
-        self.node_thread = Node_Thread()
+        self.node_thread = NodeThread()
         if self.node_path:
             self.node_thread.get_path(self.node_path)
         self.node_thread.start()
         self.node_thread.node_sign.connect(self.node_test)
 
     def node_test(self, msg):
-        self.node_text.append(msg)
+        self.node_text.append(msg + '\n')
+        if msg == 'No problem':
+            self.node_lab.setText('Node_Status:' + 'Correct')
+        else:
+            self.node_lab.setText('Node_Status:' + 'Wrong')
 
     def over_thread(self):
+        self.path_line.setReadOnly(False)
         self.start_btn.setEnabled(True)
         self.fod_thread.thd_on = False
         self.fod_thread.exit()
@@ -413,9 +461,13 @@ class Main_widget(QtGui.QWidget):
         self.node_thread.thf_on = False
         self.node_thread.exit()
 
+    def closeEvent(self, event):
+        event.accept()
+        os._exit(0)
+
 
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
-    ui = Main_widget()
+    ui = Main()
     ui.show()
     app.exec_()
