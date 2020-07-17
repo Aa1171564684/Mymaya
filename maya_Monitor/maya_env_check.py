@@ -10,6 +10,7 @@ import time
 import subprocess
 from ctypes.wintypes import MAX_PATH
 from PySide import QtGui, QtCore
+import monitor_func
 
 PY_NAME = "node_thread.py"
 ENV_NAME = "env_thread.py"
@@ -27,6 +28,8 @@ qmut_fod = QtCore.QMutex()
 # sys，env子线程
 class EnvThread(QtCore.QThread):
     env_sign = QtCore.Signal(str)
+    env_sign_two = QtCore.Signal(int)
+    env_sign_thr = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super(EnvThread, self).__init__(parent)
@@ -39,32 +42,38 @@ class EnvThread(QtCore.QThread):
         if path:
             self.env_path = path
 
-    # 查询路径下的ma，mb文件
-    def search_files(self):
-        import fnmatch
-        fnexps = "*.ma|*.mb"
-        for root, dirs, files in os.walk(self.env_path):
-            for fnexp in fnexps.split('|'):
-                for filename in fnmatch.filter(files, fnexp):
-                    yield os.path.join(root, filename)
-
     def run(self):
         self.sleep(10)
         while self.the_on:
             if re.search('\.', self.env_path):
+                print 5555
                 # 配置环境执行操作
                 run_command = ENV_COMMAND + ' ' + self.env_path
-                proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
-                stdout_value = proc.stdout.readlines()[1:]
-                self.env_sign.emit(self.env_path + '\n' + str(stdout_value))
+                p = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
+                stdout = p.stdout.readlines()[1:]
+                if re.search(r'env is normal', str(stdout)):
+                    if re.search(r'sys is normal', str(stdout)):
+                        self.env_sign_two.emit(1)
+                        self.env_sign_thr.emit(self.env_path + '\n' + 'No problem')
+                    else:
+                        self.env_sign.emit(self.env_path + '\n' + str(stdout))
+                else:
+                    self.env_sign.emit(self.env_path + '\n' + str(stdout))
             else:
+                print 6666
                 # 配置环境执行操作
-                for ma in list(self.search_files()):
-                    ma_path = ma
+                for ma_path in list(monitor_func.search_files(self.env_path)):
                     run_command = ENV_COMMAND + ' ' + ma_path
-                    proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
-                    stdout_value = proc.stdout.readlines()[1:]
-                    self.env_sign.emit(ma_path + '\n' + str(stdout_value))
+                    p = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
+                    stdout = p.stdout.readlines()[1:]
+                    if re.search(r'env is normal', str(stdout)):
+                        if re.search(r'sys is normal', str(stdout)):
+                            self.env_sign_two.emit(1)
+                            self.env_sign_thr.emit(ma_path + '\n' + 'No problem')
+                        else:
+                            self.env_sign.emit(ma_path + '\n' + str(stdout))
+                    else:
+                        self.env_sign.emit(ma_path + '\n' + str(stdout))
             self.sleep(20)
 
 
@@ -76,76 +85,11 @@ class FodThread(QtCore.QThread):
     list_spt = []
     list_my_spt = []
     list_install = []
+    list_modu = []
 
     def __init__(self, parent=None):
         super(FodThread, self).__init__(parent)
         self.thd_on = True
-
-    # def get_maya_location(self):
-    #     '''
-    #     获取maya安装目录
-    #     :return: C:\Program Files\Autodesk\Maya2017
-    #     '''
-    #     list_install = []
-    #     for i in (os.environ):
-    #         if i == 'MAYA_LOCATION':
-    #             list_install.append(i)
-    #     if not list_install:
-    #         # print u'系统未识别到MAYA_LOCATION'
-    #         return False
-    #     else:
-    #         # print os.environ.get(list[0]) #maya安装目录
-    #         return os.environ.get(list_install[0])
-
-    def DFS_file_search(self, dict_name):
-        """
-
-        Args:
-            dict_name:
-
-        Returns:
-            result_txt
-        """
-        stack = []
-        result_txt = []
-        stack.append(dict_name)
-        while len(stack) != 0:  # 栈空代表所有目录均已完成访问
-            temp_name = stack.pop()
-            try:
-                temp_name2 = os.listdir(temp_name)  # list ["","",...]
-                for eve in temp_name2:
-                    stack.append(temp_name + "\\" + eve)  # 维持绝对路径的表达
-            except:
-                result_txt.append(temp_name)
-        return result_txt
-
-    def judge_time(self, pttq_path):
-        """
-
-        Args:
-            pttq_path:
-
-        Returns:
-                获取此文件的md5
-        """
-        pttq_path_list = []
-        time_list = []  # pttq_path1下所有文件修改日期的列表
-        for i in self.DFS_file_search(pttq_path):
-            # print i
-            file_time = time.ctime(os.stat(i).st_mtime)  # 文件的修改时间
-            if file_time in time_list:
-                pass
-            else:
-                time_list.append(file_time)
-        for root_dir, sub_dir, sub_files in os.walk(pttq_path):
-            if sub_dir:
-                pttq_path_list.append(sub_dir)
-            if sub_files:
-                pttq_path_list.append(sub_files)
-        m1 = hashlib.md5()
-        m1.update(str(pttq_path_list) + str(time_list))
-        md5 = m1.hexdigest()  # md5值
-        return md5
 
     def run(self):
         '''
@@ -161,26 +105,33 @@ class FodThread(QtCore.QThread):
                 pttq_path1 = buf.value + r'\maya\scripts'
                 pttq_path2 = buf.value + r'\maya\2017\scripts'
                 pttq_path3 = r'C:\Program Files\Autodesk\Maya2017'
-                md5_inst = self.judge_time(pttq_path3)
+                pttq_path4 = buf.value + r'\maya\2017\modules'
+                md5_inst = monitor_func.judge_time(pttq_path3)
                 if not self.list_install:
                     self.list_install.append(md5_inst)
-                md5_spt = self.judge_time(pttq_path1)
+                md5_spt = monitor_func.judge_time(pttq_path1)
                 if not self.list_spt:
                     self.list_spt.append(md5_spt)
-                md5_my_spt = self.judge_time(pttq_path2)
+                md5_my_spt = monitor_func.judge_time(pttq_path2)
                 if not self.list_my_spt:
                     self.list_my_spt.append(md5_my_spt)
+                md5_modu = monitor_func.judge_time(pttq_path4)
+                if not self.list_modu:
+                    self.list_modu.append(md5_modu)
                 if md5_inst in self.list_install:
                     # self.fod_sign_two.emit('maya installation path is normal')
                     if md5_spt in self.list_spt:
                         # self.fod_sign_two.emit('The file ‘script’ in the maya document is normal')
                         if md5_my_spt in self.list_my_spt:
-                            self.fod_sign_two.emit('The file about maya is normal.')
-                            self.fod_sign_thr.emit(1)
+                            if md5_modu in self.list_modu:
+                                self.fod_sign_two.emit('The file about maya is normal.')
+                                self.fod_sign_thr.emit(1)
+                            else:
+                                self.fod_sign.emit("The file 'maya/2017/modules' in the maya document has changed")
                         else:
-                            self.fod_sign.emit("The file 'maya2017/script' in the maya document has changed")
+                            self.fod_sign.emit("The file 'maya/2017/script' in the maya document has changed")
                     else:
-                        self.fod_sign.emit("The file 'script' in the maya document has changed")
+                        self.fod_sign.emit("The file 'maya/script' in the maya document has changed")
                 else:
                     self.fod_sign.emit(" File changes under maya installation path")
             self.sleep(5)
@@ -189,47 +140,48 @@ class FodThread(QtCore.QThread):
 # scriptNode子线程
 class NodeThread(QtCore.QThread):
     node_sign = QtCore.Signal(str)
+    node_sign_two = QtCore.Signal(int)
+    node_sign_thr = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super(NodeThread, self).__init__(parent)
-        self.path = None
+        self.node_path = None
         self.thf_on = True
 
     def get_path(self, path):
         if path:
-            self.path = path
-
-    def search_files(self):
-        import fnmatch
-        fnexps = "*.ma|*.mb"
-        for root, dirs, files in os.walk(self.path):
-            for fnexp in fnexps.split('|'):
-                for filename in fnmatch.filter(files, fnexp):
-                    yield os.path.join(root, filename)
+            self.node_path = path
 
     def run(self):
         self.sleep(10)
         while self.thf_on:
-            if re.search('\.', self.path):
-                run_command = CMD_COMMAND + ' ' + self.path
+            if re.search('\.', self.node_path):
+                run_command = CMD_COMMAND + ' ' + self.node_path
                 proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
                 stdout_value = proc.stdout.readlines()[-1]
-                self.node_sign.emit(self.path + '\n' + str(stdout_value))
+                if re.search(r'No problem', str(stdout_value)):
+                    self.node_sign_two.emit(1)
+                    self.node_sign_thr.emit(self.node_path + '\n' + 'No problem')
+                else:
+                    self.node_sign.emit(self.node_path + '\n' + str(stdout_value))
             else:
-                for ma in list(self.search_files()):
-                    ma_path = ma
+                for ma_path in list(monitor_func.search_files(self.node_path)):
                     run_command = CMD_COMMAND + ' ' + ma_path
                     proc = subprocess.Popen(run_command, shell=True, stdout=subprocess.PIPE)
                     stdout_value = proc.stdout.readlines()[-1]
-                    self.node_sign.emit(ma_path + '\n' + str(stdout_value))
+                    if re.search(r'No problem', str(stdout_value)):
+                        self.node_sign_two.emit(1)
+                        self.node_sign_thr.emit(ma_path + '\n' + 'No problem')
+                    else:
+                        self.node_sign.emit(ma_path + '\n' + str(stdout_value))
             self.sleep(20)
 
 
 # 自定义QLineEdit
-class MyLineEdit(QtGui.QLineEdit):
+class MLineEdit(QtGui.QLineEdit):
 
     def __init__(self, parent=None):
-        super(MyLineEdit, self).__init__(parent)
+        super(MLineEdit, self).__init__(parent)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
 
@@ -259,8 +211,7 @@ class Main(QtGui.QWidget):
         self.node_thread = None
         self.env_thread = None
         self.fod_thread = None
-        self.node_path = None
-        self.node_drag = None
+        self.path = None
 
         self.setWindowTitle('MAYA_MONITOR')
         self.setMinimumHeight(500)
@@ -297,9 +248,12 @@ class Main(QtGui.QWidget):
         frame_two.setFrameShadow(QtGui.QFrame.Raised)
         frame_two.setLineWidth(2)
 
-        self.path_line = MyLineEdit()
+        self.path_line = MLineEdit()
         self.path_line.setPlaceholderText('Please enter the path to check')
         self.path_line.setMinimumHeight(40)
+        self.brow_btn = QtGui.QPushButton('Browse')
+        self.brow_btn.setMinimumWidth(120)
+        self.brow_btn.setMinimumHeight(40)
 
         self.env_lab = QtGui.QLabel('Environ_Status:      ')
         self.env_lab.setStyleSheet('Font-Size:20px')
@@ -341,6 +295,7 @@ class Main(QtGui.QWidget):
         self.v_layout_node.addWidget(self.node_lab)
         self.v_layout_node.addWidget(self.node_text)
         self.h_layout_path.addWidget(self.path_line)
+        self.h_layout_path.addWidget(self.brow_btn)
 
         self.h_layout.addWidget(self.end_btn)
         self.h_layout.addWidget(self.time_lab_s)
@@ -361,10 +316,11 @@ class Main(QtGui.QWidget):
         self.timer.timeout.connect(self.show_time)
 
         self.start_btn.clicked.connect(self.show_lab)
-        self.start_btn.clicked.connect(self.env_mo)
-        self.start_btn.clicked.connect(self.node_mo)
-        self.start_btn.clicked.connect(self.fod_mo)
+        self.start_btn.clicked.connect(self.env_on)
+        self.start_btn.clicked.connect(self.node_on)
+        self.start_btn.clicked.connect(self.fod_on)
         self.start_btn.clicked.connect(self.reset_text)
+        self.brow_btn.clicked.connect(self.get_path)
         self.end_btn.clicked.connect(self.hide_lab)
         self.end_btn.clicked.connect(self.over_thread)
 
@@ -372,6 +328,7 @@ class Main(QtGui.QWidget):
 
     def reset_text(self):
         self.start_btn.setEnabled(False)
+        self.brow_btn.setEnabled(False)
         self.fod_text.setText('Folder_Monitor:')
         self.env_text.setText('Environ_Monitor:')
         self.node_text.setText('Node_Monitor:')
@@ -379,13 +336,17 @@ class Main(QtGui.QWidget):
         self.env_lab.setText('Environ_Status:')
         self.node_lab.setText('Node_Status:')
 
-    def enter_path_one(self):
-        self.node_path = self.path_line.text()
-        if self.node_path:
-            self.start_btn.setEnabled(True)
+    def get_path(self):
+        directory = QtGui.QFileDialog.getExistingDirectory(self, "请选择文件夹", "/")
+        if directory:
+            self.path_line.setText(directory)
+        else:
+            pass
 
-    def check_sue(self):
-        pass
+    def enter_path_one(self):
+        self.path = self.path_line.text()
+        if self.path:
+            self.start_btn.setEnabled(True)
 
     def show_time(self):
         datetime = QtCore.QDateTime.currentDateTime()
@@ -403,7 +364,7 @@ class Main(QtGui.QWidget):
     def hide_lab(self):
         self.timer.stop()
 
-    def fod_mo(self):
+    def fod_on(self):
         self.fod_thread = FodThread()
         self.fod_thread.start()
         self.fod_lab.setText('Folder_Status:' + 'Correct')
@@ -415,44 +376,69 @@ class Main(QtGui.QWidget):
     def fod_test_show(self, msg):
         self.fod_lab.setText('Folder_Status:' + 'Wrong')
         self.fod_text.append(msg + '\n')
+        self.fod_text.setStyleSheet("color:red")
 
     def no_fod_test_show(self, msg):
         self.fod_text.append(msg + '\n')
+        self.fod_text.setStyleSheet("color:black")
 
     def fod_true(self, msg):
         if msg == 1:
             self.fod_lab.setText('Folder_Status:' + 'Correct')
 
-    def env_mo(self):
+    def env_on(self):
         self.env_thread = EnvThread()
-        if self.node_path:
-            self.env_thread.get_env(self.node_path)
-        self.env_thread.env_sign.connect(self.env_test)
+        if self.path:
+            self.env_thread.get_env(self.path)
         self.env_thread.start()
+        if self.env_thread.env_sign:
+            self.env_thread.env_sign.connect(self.env_test)
+        if self.env_thread.env_sign_two:
+            self.env_thread.env_sign_two.connect(self.env_test_status)
+            self.env_thread.env_sign_thr.connect(self.env_test_true)
+
+    def env_test_status(self, msg):
+        if msg == 1:
+            self.env_lab.setText('Environ_Status:' + 'Correct')
+            self.env_text.setStyleSheet("color:black")
+
+    def env_test_true(self, msg):
+        self.env_text.append(msg)
 
     def env_test(self, msg):
-        self.env_text.append(msg + '\n')
-        if msg == 'sys is No problem' and 'env is No problem':
-            self.env_lab.setText('Environ_Status:' + 'Correct')
-        else:
-            self.env_lab.setText('Environ_Status:' + 'Wrong')
+        self.env_text.append(msg)
+        self.env_lab.setText('Environ_Status:' + 'Wrong')
+        self.env_text.setStyleSheet("color:red")
 
-    def node_mo(self):
+    def node_on(self):
         self.node_thread = NodeThread()
-        if self.node_path:
-            self.node_thread.get_path(self.node_path)
+        if self.path:
+            self.node_thread.get_path(self.path)
         self.node_thread.start()
-        self.node_thread.node_sign.connect(self.node_test)
+        if self.node_thread.node_sign:
+            self.node_thread.node_sign.connect(self.node_test)
+        if self.node_thread.node_sign_two:
+            self.node_thread.node_sign_two.connect(self.node_test_status)
+            self.node_thread.node_sign_thr.connect(self.node_test_true)
+
+    def node_test_status(self, msg):
+        if msg == 1:
+            self.node_lab.setText('Node_Status:' + 'Correct')
+            self.node_text.setStyleSheet("color:black")
+
+    def node_test_true(self, msg):
+        self.node_text.append(msg)
 
     def node_test(self, msg):
-        self.node_text.append(msg + '\n')
-        if msg == 'No problem':
-            self.node_lab.setText('Node_Status:' + 'Correct')
-        else:
-            self.node_lab.setText('Node_Status:' + 'Wrong')
+        self.node_text.append(msg)
+        self.node_lab.setText('Node_Status:' + 'Wrong')
+        self.node_text.setStyleSheet("color:red")
 
     def over_thread(self):
+        self.env_text.setStyleSheet("color:black")
+        self.node_text.setStyleSheet("color:black")
         self.path_line.setReadOnly(False)
+        self.brow_btn.setEnabled(True)
         self.start_btn.setEnabled(True)
         self.fod_thread.thd_on = False
         self.fod_thread.exit()
