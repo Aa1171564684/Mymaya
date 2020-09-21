@@ -1,12 +1,16 @@
 # coding=utf8
-# Copyright (c) 2020 GVF
 
 from PySide2 import QtWidgets, QtCore
 import logging
-import public_functions
-from gvf_globals import task_globals
 import mtou_func
 import re
+import shiboken2
+import maya.OpenMayaUI as omi
+
+def get_maya_window():
+    maya_ptr = omi.MQtUtil.mainWindow()
+    maya_window = shiboken2.wrapInstance(long(maya_ptr), QtWidgets.QDialog)
+    return maya_window
 
 
 
@@ -17,7 +21,7 @@ log.setLevel(level=logging.INFO)
 class FbxExportWidget(QtWidgets.QWidget):
     log_signal = QtCore.Signal(str)
 
-    def __init__(self, parent=public_functions.get_main_window('maya')):
+    def __init__(self, parent=get_maya_window()):
         super(FbxExportWidget, self).__init__(parent)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setObjectName('Export')
@@ -219,6 +223,5 @@ class FbxExportWidget(QtWidgets.QWidget):
 
 
 def main():
-    public_functions.delete_existed_maya_window('Export')
-    ui = FbxExportWidget(parent=public_functions.get_main_window('maya'))
+    ui = FbxExportWidget()
     ui.show()
