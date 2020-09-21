@@ -1,227 +1,235 @@
 # coding=utf8
 
-from PySide2 import QtWidgets, QtCore
-import logging
-import mtou_func
-import re
-import shiboken2
-import maya.OpenMayaUI as omi
-
-def get_maya_window():
-    maya_ptr = omi.MQtUtil.mainWindow()
-    maya_window = shiboken2.wrapInstance(long(maya_ptr), QtWidgets.QDialog)
-    return maya_window
+import maya.cmds as cmds
+import maya.mel as mel
 
 
-
-log = logging.getLogger('fbx_tool')
-log.setLevel(level=logging.INFO)
-
-
-class FbxExportWidget(QtWidgets.QWidget):
-    log_signal = QtCore.Signal(str)
-
-    def __init__(self, parent=get_maya_window()):
-        super(FbxExportWidget, self).__init__(parent)
-        self.setWindowFlags(QtCore.Qt.Window)
-        self.setObjectName('Export')
-        self.setWindowTitle('FBX_EXPORT')
-        self.setMinimumSize(360, 540)
-        self.setStyleSheet("""QWidget {font-size:14px}""")
-        main_lay = QtWidgets.QVBoxLayout(self)
-        child_lay = QtWidgets.QHBoxLayout()
-        self.fbx_path = ""
-
-        grp_box = QtWidgets.QGroupBox(u"导出工具")
-        grp_box_lay = QtWidgets.QVBoxLayout(grp_box)
-        self.tracking_edit = QtWidgets.QTextEdit()
-        self.tracking_edit.setText(u'必须选择需要导出的模型和路径再执行export')
-        self.tracking_edit.setReadOnly(True)
-        browse_lay = QtWidgets.QHBoxLayout()
-        self.line_edit = QtWidgets.QLineEdit()
-        self.browse_btn = QtWidgets.QPushButton("Browse")
-        browse_lay.addWidget(self.line_edit)
-        browse_lay.addWidget(self.browse_btn)
-        self.line_edit.setStyleSheet(("QLineEdit{color:green}"
-                                      "QLineEdit:hover{color:red}"
-                                      "QLineEdit{background-color:rgb(128,185,195)}"
-                                      "QLineEdit{border:10px}"
-                                      "QLineEdit{border-radius:3px}"
-                                      "QLineEdit{padding:2px 1px}"))
-        self.export_btn = QtWidgets.QPushButton("Export")
-        self.export_btn.setStyleSheet("QPushButton{color:black}"
-                                      "QPushButton:hover{color:red}"
-                                      "QPushButton{background-color:rgb(78,255,255)}"
-                                      "QPushButton{border:2px}"
-                                      "QPushButton{border-radius:10px}"
-                                      "QPushButton{padding:2px 4px}"
-                                      "QPushButton{font-size:18px}")
-        self.clear_btn = QtWidgets.QPushButton('Clear')
-        self.clear_btn.setStyleSheet("QPushButton{color:red}"
-                                     "QPushButton:hover{color:black}"
-                                     "QPushButton{background-color:rgb(255,255,78)}"
-                                     "QPushButton{border:2px}"
-                                     "QPushButton{border-radius:10px}"
-                                     "QPushButton{padding:2px 4px}")
-        self.export_btn.setFixedHeight(30)
-        self.clear_btn.setFixedHeight(30)
-
-        grp_box_lay.addWidget(self.tracking_edit)
-        main_lay.addWidget(grp_box)
-        main_lay.addLayout(browse_lay)
-        main_lay.addLayout(child_lay)
-        child_lay.addWidget(self.export_btn)
-        child_lay.addWidget(self.clear_btn)
-        main_lay.addSpacing(10)
-        self.export_btn.clicked.connect(self.main_func)
-        self.browse_btn.clicked.connect(self.do_browse)
-        self.clear_btn.clicked.connect(self.clear_text)
-        self.log_signal.connect(self.set_text)
-
-    def main_func(self):
-        grp_list=[]
-        # 获取选择的物体名称
-        select_mesh = mtou_func.select_mesh()
-
-        file_path = mtou_func.get_file_name()
-        if not select_mesh:
-            return False
-
-        if not self.fbx_path:
-            QtWidgets.QMessageBox.information(self, u'提示', u'请选择导出路径', QtWidgets.QMessageBox.Ok)
-            return False
-            # 检查大纲内是否有组
-        status_gp = mtou_func.get_group()
-        if status_gp == 'group':
-            button_gp = QtWidgets.QMessageBox.information(self, u'警告', u'大纲内有Group，请先处理',
-                                                          QtWidgets.QMessageBox.Ok)
-            if button_gp == QtWidgets.QMessageBox.Ok:
-                grp_list.append('two_uv')
-        if len(grp_list)>0:
-            self.log_signal.emit(u'大纲内有Group，请先处理')
-            raise RuntimeError(u'大纲内有Group，请先处理')
-        success_list = []
-        failed_list = []
-        if file_path:
-            for log_mesh in select_mesh:
-                infor_list = []
-                self.log_signal.emit(u'开始导出:' + log_mesh)
-                # 检查模型边数
-                face_edge_dict = mtou_func.query_face_dege(log_mesh)
-                for key, value in face_edge_dict.items():
-                    if value > 4:
-                        infor_list.append(log_mesh + u'模型存在超过四边的面')
-                        failed_list.append(log_mesh + u'模型存在超过四边的面')
-                # 查询UV坐标
-                uv_posi=mtou_func.check_uv_point(log_mesh)
-                if uv_posi:
-                    uv_num=[]
-                    for uv in uv_posi:
-                        if not 0<=uv<=1:
-                            uv_num.append(uv)
-                    if len(uv_num)>0:
-                        #QtWidgets.QMessageBox.information(self, u'警告', u'所选模型存在UV超出第一象限',QtWidgets.QMessageBox.OK )
-                        infor_list.append(log_mesh + u':所选模型存在UV超出第一象限')
-                        failed_list.append(log_mesh + u':所选模型存在UV超出第一象限')
-                else:
-                    uv_posi_one=mtou_func.check_one_uv(log_mesh)
-                    uv_num_one = []
-                    for uv_one in uv_posi_one:
-                        if not 0 <= uv_one <= 1:
-                            uv_num_one.append(uv_one)
-                    if len(uv_num_one) > 0:
-                        #QtWidgets.QMessageBox.information(self, u'警告', u'所选模型存在UV超出第一象限', QtWidgets.QMessageBox.OK)
-                        infor_list.append(log_mesh + u':所选模型存在UV超出第一象限')
-                        failed_list.append(log_mesh + u':所选模型存在UV超出第一象限')
-                # 检查模型面数
-                face_num = mtou_func.check_face_num(log_mesh)
-                if re.search(r'Assets/Char', file_path) and isinstance(face_num, int):
-                    if face_num >= 500000:
-                        button_char = QtWidgets.QMessageBox.information(self, u'警告', u'所选资产模型面数大于等于50万,是否继续导出？',
-                                                                        QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel,
-                                                                        QtWidgets.QMessageBox.Cancel)
-                        if button_char == QtWidgets.QMessageBox.Ok:
-                            pass
-                        else:
-                            self.log_signal.emit(log_mesh + u'已取消导出')
-                            infor_list.append(log_mesh + u':用户取消导出面数大于等于50万的资产')
-                            failed_list.append(log_mesh + u':用户取消导出面数大于等于50万的资产')
-                if re.search(r'Assets/Envir', file_path) and isinstance(face_num, int):
-                    if face_num >= 10000:
-                        button_envir = QtWidgets.QMessageBox.information(self, u'警告', u'所选场景模型面数大于等于1万，是否继续导出？',
-                                                                         QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel,
-                                                                         QtWidgets.QMessageBox.Cancel)
-                        if button_envir == QtWidgets.QMessageBox.Ok:
-                            pass
-                        else:
-                            self.log_signal.emit(log_mesh + u'已取消导出')
-                            infor_list.append(log_mesh + u':用户取消导出面数大于等于1万的场景')
-                            failed_list.append(log_mesh + u':用户取消导出面数大于等于1万的场景')
-                # 世界坐标归零
-                mtou_func.reset_object_position(log_mesh)
-                # UVset
-                status_uv=mtou_func.check_uv_count(log_mesh)
-                if status_uv=='warning':
-                    button_uv = QtWidgets.QMessageBox.information(self, u'警告', log_mesh+u'不是2UV的模型，是否继续导出？',
-                                                                     QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel,
-                                                                     QtWidgets.QMessageBox.Cancel)
-                    if button_uv == QtWidgets.QMessageBox.Ok:
-                        pass
-                    else:
-                        self.log_signal.emit(log_mesh + u'已取消导出')
-                        infor_list.append(log_mesh + u':用户取消导出不是2UV的模型')
-                        failed_list.append(log_mesh + u':用户取消导出不是2UV的模型')
-
-                # 检查重复UV
-                overlap_uv = mtou_func.check_uv_overlap(log_mesh)
-                if overlap_uv:
-                    infor_list.append(log_mesh + u'所选单个模型存在UV重叠的面')
-                    failed_list.append(log_mesh + u'所选单个模型存在UV重叠的面')
-                # 检查点重合
-                point_position_list = mtou_func.chech_point_overlap(log_mesh)
-                final_point = []
-                for point in point_position_list:
-                    if point not in final_point:
-                        final_point.append(point)
-                    else:
-                        infor_list.append(log_mesh + u':单个模型中有重合的点')
-                        failed_list.append(log_mesh + u':单个模型中有重合的点')
-                if len(infor_list) == 0:
-                    # 导出fbx到自定义的路径
-                    if self.fbx_path and not self.fbx_path == "":
-                        mtou_func.set_export_argument(log_mesh, self.fbx_path)
-                        success_list.append(log_mesh)
-                        self.log_signal.emit(log_mesh + u'无错误，模型导出成功\n')
-                    else:
-                        QtWidgets.QMessageBox.information(self, u'提示', u'请输入导出FBX文件的路径', QtWidgets.QMessageBox.Ok)
-                        self.log_signal.emit(u'请输入导出FBX文件的路径')
-
-        else:
-            QtWidgets.QMessageBox.information(self, u'提示', u'当前文件未保存', QtWidgets.QMessageBox.Ok)
-            return 
-
-        self.log_signal.emit(
-            u'共有' + str(len(success_list)) + u'个成功 , ' + str(len(select_mesh) - len(success_list)) + u'个失败')
-        self.log_signal.emit(u'失败的模型和原因:\n' + str(failed_list).decode('unicode_escape'))
-        QtWidgets.QMessageBox.information(self, u'提示', u'导出完成', QtWidgets.QMessageBox.Ok)
-
-    # def open_path(self):
-    #     QtWidgets.QFileDialog.getOpenFileName(self, u'文件选择框', self.fbx_path, 'FBX files(*.fbx)')
-
-    def set_text(self, msg):
-        self.tracking_edit.insertPlainText(msg + '\n')
-
-    def clear_text(self):
-        self.tracking_edit.clear()
-
-    def do_browse(self):
-        self.fbx_path = mtou_func.get_export_path()
-        if self.fbx_path:
-            self.line_edit.setText(self.fbx_path)
-        else:
-            self.line_edit.clear()
+def select_mesh():
+    select_mesh = cmds.ls(sl=1)
+    cmds.select(cl=1)
+    return select_mesh
 
 
-def main():
-    ui = FbxExportWidget()
-    ui.show()
+def reset_object_position(log_mesh):
+    """
+    reset the absolute acorrdinate, freeze transformation and delete construction history
+    Returns:
+
+    """
+    check_uv_count(log_mesh)
+    if log_mesh:
+        cmds.select(log_mesh, r=1)
+        cmds.move(a=1, rotatePivotRelative=1, x=0, y=0, z=0)
+        cmds.makeIdentity(log_mesh, apply=True, t=True, r=True, s=True, n=0)
+        cmds.delete(log_mesh, ch=1)
+        cmds.select(cl=1)
+        return True
+
+
+def check_uv_count(log_mesh):
+    """
+    Check if the shape contain uv sets less than 2
+    Args:
+        mesh:
+
+    Returns:
+        bool: True for less than 2, False otherwise
+    """
+    uv_set_num = cmds.polyUVSet(log_mesh, query=True, allUVSets=True)
+    cmds.select(cl=1)
+    if uv_set_num:
+        if not len(uv_set_num) == 2:
+            return 'warning'
+    else:
+        pass
+    return True
+
+
+def set_export_argument(log_mesh, fbx_path):
+    """
+
+    Args:
+        select_mesh:
+        fbx_path:
+
+    Returns:
+
+    """
+
+    cmds.loadPlugin("fbxmaya.mll", qt=1)
+    cmds.select(log_mesh)
+    # 设置导出信息
+    mel.eval('FBXExportSmoothingGroups -v true')
+    mel.eval('FBXExportSmoothMesh -v true')
+    # 执行导出
+    cmds.file(fbx_path + '/' + log_mesh, force=1, typ="FBX export", pr=1, es=1)
+    cmds.select(cl=1)
+
+
+def check_uv_overlap(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+
+    """
+    overlap_uv = None
+    uv_name_list = []
+    uv_num = cmds.polyEvaluate(log_mesh, f=1)
+    for num in range(uv_num):
+        # 获取面名称
+        uv_name = '{}.f[{}]'.format(log_mesh, num)
+        uv_name_list.append(uv_name)
+    cmds.select(uv_name_list, add=1)
+    # 判断UV是否重合
+    overlap_uv = cmds.polyUVOverlap(oc=1)
+    cmds.select(cl=1)
+    return overlap_uv
+
+
+def set_filter(edge_num):
+    """
+
+    Args:
+        edge_num:
+
+    Returns:
+
+    """
+    for element in edge_num:
+        if element == ' ':
+            pass
+
+
+def query_face_dege(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+
+    """
+    # 获取面数量
+    face_edge_dict = {}
+    mesh_face_num = cmds.polyEvaluate(log_mesh, f=1)
+    for num in range(mesh_face_num):
+        mesh_face_name = '{}.f[{}]'.format(log_mesh, num)
+        # 获取边数量
+        mesh_edge = cmds.polyInfo(mesh_face_name, fe=1)
+        mesh_edge_index = mesh_edge[0].split(':')[-1].split(' ')[:-1]
+        # 过滤空格字符串
+        mesh_edge_num = len(filter(set_filter(mesh_edge_index), mesh_edge_index))
+        face_edge_dict[mesh_face_name] = int(mesh_edge_num)
+    cmds.select(cl=1)
+    return face_edge_dict
+
+
+# 查询模型面数
+def check_face_num(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+            Three different status
+    """
+    # 查询模型的全路径
+    file_path = None
+    face_num = None
+    # file_path = cmds.file(log_mesh, q=1, sn=1)
+    face_num = cmds.polyEvaluate(log_mesh, f=1)
+    cmds.select(cl=1)
+    return face_num
+
+
+def chech_point_overlap(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+        point_position_list: list - position of the point
+    """
+    point_position_list = []
+    # for mesh_face in select_mesh:
+    point_num = cmds.polyEvaluate(log_mesh, v=1)
+    for num in range(point_num):
+        point_name = '{}.vtx[{}]'.format(log_mesh, num)
+        # 查询点的坐标
+        point_position = cmds.xform(point_name, q=1, t=1, ws=1)
+        point_position_list.append(point_position)
+    cmds.select(cl=1)
+    return point_position_list
+
+
+def get_export_path():
+    """
+
+    Returns:
+
+    """
+    path = cmds.fileDialog2(fm=3)
+    if path:
+        return path[0]
+
+
+def get_file_name():
+    if cmds.file(q=1, sn=1):
+        return cmds.file(q=1, sn=1)[0]
+
+
+def get_group():
+    total_mesh = cmds.ls(type='transform')
+    for mesh in total_mesh:
+        if cmds.nodeType(cmds.listRelatives(mesh, c=1)) == 'transform':
+            return 'group'
+
+
+def check_uv_point(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+            检查有两套UV的模型的UV坐标
+    """
+    uv_posi = []
+    if cmds.polyUVSet(log_mesh, query=True, allUVSets=True)==2:
+        for ou in cmds.getAttr(log_mesh + '.uvSet[0].uvSetPointsU'):
+            uv_posi.append(ou)
+        for ov in cmds.getAttr(log_mesh + '.uvSet[0].uvSetPointsV'):
+            uv_posi.append(ov)
+        for tu in cmds.getAttr(log_mesh + '.uvSet[1].uvSetPointsU'):
+            uv_posi.append(tu)
+        for tv in cmds.getAttr(log_mesh + '.uvSet[1].uvSetPointsV'):
+            uv_posi.append(tv)
+        return uv_posi
+    else:
+        return False
+
+
+def check_one_uv(log_mesh):
+    """
+
+    Args:
+        log_mesh:
+
+    Returns:
+        检查有一套UV的模型的UV坐标
+    """
+    uv_posi_one = []
+    uv_num = cmds.polyEvaluate(log_mesh, uv=1)
+    for num in range(uv_num):
+        point_name = '{}.map[{}]'.format(log_mesh, num)
+        # print point_name
+        uv_value = cmds.polyEditUV(point_name, q=1)
+        # print uv_value
+        for point in uv_value:
+            uv_posi_one.append(point)
+    return uv_posi_one
