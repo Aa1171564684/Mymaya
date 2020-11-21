@@ -1,5 +1,4 @@
 # coding=utf8
-# Copyright (c) 2019 GVF
 
 import ctypes
 import hashlib
@@ -16,8 +15,8 @@ import monitor_func
 PY_NAME = "node_thread.py"
 ENV_NAME = "env_thread.py"
 MAYA_PY_PATH = '"C:\\Program Files\\Autodesk\\Maya2017\\bin\\mayapy.exe"'
-DEV_RUN_PY_PATH = os.path.join("D:/gvfpipe/dcc_ops/maya/scripts/maya_Monitor/", PY_NAME)
-ENV_RUN_PY_PATH = os.path.join("D:/gvfpipe/dcc_ops/maya/scripts/maya_Monitor/", ENV_NAME)
+DEV_RUN_PY_PATH = os.path.join("D:/dcc_ops/maya/scripts/maya_Monitor/", PY_NAME)
+ENV_RUN_PY_PATH = os.path.join("D:/dcc_ops/maya/scripts/maya_Monitor/", ENV_NAME)
 CMD_COMMAND = "{} {}".format(MAYA_PY_PATH, DEV_RUN_PY_PATH)
 ENV_COMMAND = "{} {}".format(MAYA_PY_PATH, ENV_RUN_PY_PATH)
 

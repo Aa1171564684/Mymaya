@@ -1,5 +1,4 @@
 # coding=utf8
-# Copyright (c) 2019 GVF
 import os
 import maya.standalone as standalone
 import sys

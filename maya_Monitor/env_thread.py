@@ -1,6 +1,4 @@
 # coding=utf8
-# Copyright (c) 2019 GVF
-# coding:utf8
 import os
 import sys
 import re
@@ -35,7 +33,7 @@ def check_sys(path):
         for i in sys.path:
             if i not in sys_path_list:
                 print 'new sys.path:{}'.format(i)
-    righte_env = []
+    right_env = []
     for i in os.environ.keys():
         if re.search(r'MTOA_PATH',i) or re.search(r'MTOA_EXTENSIONS_PATH',i) or re.search(r'ARNOLD_PLUGIN_PATH',i):
             pass
@@ -45,14 +43,13 @@ def check_sys(path):
             if key_and_value in before_environ_list:
                 pass
             else:
-                righte_env.append(key_and_value)
+                right_env.append(key_and_value)
                 print 'Environmental variable change:{}'.format(i)
-    if not righte_env:
+    if not right_env:
         print 'env is normal'
 
 
 begin()
-# path="X:/Projects/Cinderella2/Publish/Assets/Char/forestQ/Mod/High/forestQ_mod_H_v003.ma"
 path = sys.argv[-1]
 check_sys(path)
 standalone.uninitialize()
